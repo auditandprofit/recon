@@ -1,7 +1,7 @@
 import asyncio
 from typing import List
 
-from auditor.agent.interface import Evidence, NLRequest, NLResponse
+from auditor.agent.interface import NLRequest, NLResponse
 from auditor.core.models import Condition, Finding
 from auditor.core.orchestrator import Orchestrator
 
@@ -16,7 +16,7 @@ def test_depth_zero_no_children():
     finding = Finding(claim="c", origin_file="o")
     finding.root_conditions.append(Condition(text="root"))
 
-    orch = Orchestrator(agent, max_depth=0, discover_fn=lambda c: ["child"])
+    orch = Orchestrator(agent, max_depth=0, discover_fn=lambda c, o: ["child"])
     asyncio.run(orch.run([finding]))
 
     root = finding.root_conditions[0]
@@ -31,7 +31,7 @@ def test_unknown_triggers_discover_until_depth():
         requests.append(req)
         return NLResponse()
 
-    def discover_fn(cond: Condition) -> List[str]:
+    def discover_fn(cond: Condition, output: str) -> List[str]:
         if cond.text == "root":
             return ["child"]
         if cond.text == "child":
@@ -56,7 +56,7 @@ def test_fanout_cap_enforced():
     async def agent(req: NLRequest) -> NLResponse:
         return NLResponse()
 
-    def discover_fn(cond: Condition) -> List[str]:
+    def discover_fn(cond: Condition, output: str) -> List[str]:
         return [f"child{i}" for i in range(5)]
 
     finding = Finding(claim="c", origin_file="o")
@@ -75,11 +75,10 @@ def test_no_discover_when_status_known():
     async def agent(req: NLRequest) -> NLResponse:
         requests.append(req)
         if req.context["condition"]["text"] == "root":
-            ev = Evidence(path="p", line=1, snippet="PASS: ok")
-            return NLResponse(evidence=[ev])
+            return NLResponse(output="PASS: ok")
         return NLResponse()
 
-    def discover_fn(cond: Condition) -> List[str]:
+    def discover_fn(cond: Condition, output: str) -> List[str]:
         return ["child"]
 
     finding = Finding(claim="c", origin_file="o")
@@ -100,7 +99,7 @@ def test_no_discover_when_disabled():
         requests.append(req)
         return NLResponse()
 
-    def discover_fn(cond: Condition) -> List[str]:
+    def discover_fn(cond: Condition, output: str) -> List[str]:
         return ["child"]
 
     finding = Finding(claim="c", origin_file="o")

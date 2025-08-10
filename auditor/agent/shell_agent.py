@@ -2,7 +2,7 @@
 
 import asyncio
 
-from .interface import Evidence, NLRequest, NLResponse
+from .interface import NLRequest, NLResponse
 
 
 async def run(request: NLRequest) -> NLResponse:
@@ -13,11 +13,11 @@ async def run(request: NLRequest) -> NLResponse:
     )
     out, _ = await proc.communicate()
     lines = out.decode("utf-8", "ignore").splitlines()
-    evidence = []
+    matches = []
     for line in lines:
         try:
             path, lineno, snippet = line.split(":", 2)
-            evidence.append(Evidence(path=path, line=int(lineno), snippet=snippet.strip()))
+            matches.append(f"{path}:{lineno}:{snippet.strip()}")
         except ValueError:
             continue
-    return NLResponse(evidence=evidence)
+    return NLResponse(output="\n".join(matches))

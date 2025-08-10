@@ -5,16 +5,16 @@ import time
 from dataclasses import dataclass
 from typing import Awaitable, Callable, Dict, List, Optional
 
-from auditor.agent.interface import Evidence, NLRequest, NLResponse
+from auditor.agent.interface import NLRequest, NLResponse
 from auditor.core.models import AuditReport, Condition, Finding, Status
 
 
-def _status_from_evidence(evidence: List[Evidence]) -> Status:
-    """Derive a ``Status`` from evidence snippets."""
+def _status_from_output(output: str) -> Status:
+    """Derive a ``Status`` from agent output."""
 
-    if not evidence:
+    text = output.lower()
+    if not text:
         return Status.UNKNOWN
-    text = " \n".join(ev.snippet.lower() for ev in evidence)
     if "satisf" in text or "pass" in text:
         return Status.SATISFIED
     if "violate" in text or "fail" in text:
@@ -35,7 +35,7 @@ class Orchestrator:
     max_fanout: int = 10
     discover_on_unknown: bool = True
     on_event: Optional[Callable[[str, dict], None]] = None
-    discover_fn: Optional[Callable[[Condition], List[str]]] = None
+    discover_fn: Optional[Callable[[Condition, str], List[str]]] = None
 
     def _emit(self, evt: str, data: dict) -> None:
         if self.on_event:
@@ -75,12 +75,11 @@ class Orchestrator:
         except Exception:  # pragma: no cover - agent failures
             res = NLResponse()
 
-        status = _status_from_evidence(res.evidence)
-        final_text = "; ".join(ev.snippet for ev in res.evidence)
+        status = _status_from_output(res.output)
         cond.plan_params.update(
             status=status.value,
-            final=final_text,
-            evidence=[e.model_dump() for e in res.evidence],
+            final=res.output,
+            retrieval_meta=res.meta,
         )
         self._emit(
             "node:result",
@@ -89,8 +88,8 @@ class Orchestrator:
                 "id": cond.id,
                 "depth": depth,
                 "status": status.value,
-                "final": final_text,
-                "evidence": [e.model_dump() for e in res.evidence],
+                "final": res.output,
+                "retrieval_meta": res.meta,
                 "finding_id": finding.id,
             },
         )
@@ -105,7 +104,7 @@ class Orchestrator:
                 {"condition": cond.text, "id": cond.id, "depth": depth},
             )
             if self.discover_fn:
-                kids_text = self.discover_fn(cond)
+                kids_text = self.discover_fn(cond, res.output)
             self._emit(
                 "discover:result",
                 {
@@ -131,5 +130,5 @@ class Orchestrator:
             await self._eval_node(finding, child, ancestors + [cond], depth + 1)
 
 
-__all__ = ["Orchestrator", "_status_from_evidence"]
+__all__ = ["Orchestrator", "_status_from_output"]
 

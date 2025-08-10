@@ -17,6 +17,6 @@ def test_random_agent_seed_and_bounds():
     b1, b2 = asyncio.run(run(agent_b))
 
     choices = {"PASS: looks good", "FAIL: needs work", "maybe"}
-    assert a1.evidence[0].snippet in choices
-    assert a1.evidence[0].snippet == b1.evidence[0].snippet
-    assert a2.evidence[0].snippet == b2.evidence[0].snippet
+    assert a1.output in choices
+    assert a1.output == b1.output
+    assert a2.output == b2.output
