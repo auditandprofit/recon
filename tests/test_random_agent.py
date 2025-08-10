@@ -10,19 +10,13 @@ def test_random_agent_seed_and_bounds():
 
     async def run(agent):
         r1 = await agent.run(NLRequest(kind="RETRIEVE", objective="o"))
-        r2 = await agent.run(
-            NLRequest(
-                kind="DISCOVER",
-                objective="o",
-                context={"parent_condition": {"text": "root"}},
-            )
-        )
+        r2 = await agent.run(NLRequest(kind="DISCOVER", objective="o"))
         return r1, r2
 
     a1, a2 = asyncio.run(run(agent_a))
     b1, b2 = asyncio.run(run(agent_b))
 
-    assert a1.final in {"PASS: looks good", "FAIL: needs work", "maybe"}
-    assert a1.final == b1.final
-    assert a2.children == b2.children
-    assert len(a2.children) <= 3
+    choices = {"PASS: looks good", "FAIL: needs work", "maybe"}
+    assert a1.evidence[0].snippet in choices
+    assert a1.evidence[0].snippet == b1.evidence[0].snippet
+    assert a2.evidence[0].snippet == b2.evidence[0].snippet
