@@ -49,7 +49,15 @@ class Orchestrator:
     async def _eval_node(
         self, finding: Finding, cond: Condition, ancestors: List[Condition], depth: int
     ) -> None:
-        self._emit("node:start", {"condition": cond.text, "depth": depth})
+        self._emit(
+            "node:start",
+            {
+                "condition": cond.text,
+                "id": cond.id,
+                "depth": depth,
+                "finding_id": finding.id,
+            },
+        )
         req = NLRequest(
             kind="RETRIEVE",
             objective=f"Validate: {cond.text}",
@@ -66,7 +74,17 @@ class Orchestrator:
 
         status = _status_from(res.final)
         cond.plan_params.update(status=status.value, final=res.final)
-        self._emit("node:result", {"condition": cond.text, "depth": depth, "status": status.value, "final": res.final})
+        self._emit(
+            "node:result",
+            {
+                "condition": cond.text,
+                "id": cond.id,
+                "depth": depth,
+                "status": status.value,
+                "final": res.final,
+                "finding_id": finding.id,
+            },
+        )
 
         if status != Status.UNKNOWN or depth >= self.max_depth:
             return
@@ -83,17 +101,31 @@ class Orchestrator:
                 },
             )
             try:
-                self._emit("discover:start", {"condition": cond.text, "depth": depth})
+                self._emit(
+                    "discover:start",
+                    {"condition": cond.text, "id": cond.id, "depth": depth},
+                )
                 dres = await self.agent_run(dreq)
                 kids = dres.children
             except Exception:  # pragma: no cover - agent failures
                 kids = []
-            self._emit("discover:result", {"condition": cond.text, "depth": depth, "children": kids})
+            self._emit(
+                "discover:result",
+                {"condition": cond.text, "id": cond.id, "depth": depth, "children": kids},
+            )
 
         for spec in (kids or [])[: self.max_fanout]:
             child = Condition(text=spec.get("text", ""), parent_id=cond.id)
             cond.children.append(child)
-            self._emit("child:add", {"condition": child.text, "depth": depth + 1})
+            self._emit(
+                "child:add",
+                {
+                    "condition": child.text,
+                    "id": child.id,
+                    "parent_id": cond.id,
+                    "depth": depth + 1,
+                },
+            )
             await self._eval_node(finding, child, ancestors + [cond], depth + 1)
 
 

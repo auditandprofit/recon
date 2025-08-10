@@ -35,8 +35,12 @@ def test_orchestrator_emits_events_with_depth():
         "node:start",
         "node:result",
     ]
-    # Depth and condition propagated
-    assert events[0][1]["depth"] == 0
-    assert events[0][1]["condition"] == "root"
-    assert events[4][1]["depth"] == 1
-    assert events[4][1]["condition"] == "child"
+    # Depth, condition, and ids propagated
+    first = events[0][1]
+    child_evt = events[4][1]
+    assert first["depth"] == 0
+    assert first["condition"] == "root"
+    assert "id" in first and "finding_id" in first
+    assert child_evt["depth"] == 1
+    assert child_evt["condition"] == "child"
+    assert "id" in child_evt and child_evt["parent_id"]
