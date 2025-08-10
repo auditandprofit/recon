@@ -1,94 +1,29 @@
 """Minimal orchestrator coordinating NL requests."""
 
-import time
 import dataclasses
-import json
-import logging
-import re
+import time
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional
 
-from auditor.agent.interface import NLRequest, NLResponse
-from auditor.agent.openai import openai_generate_response
+from auditor.agent.interface import Evidence, NLRequest, NLResponse
 from auditor.core.models import AuditReport, Condition, Finding, Status
 
-Json = Dict[str, Any]
 
+def _status_from_evidence(evidence: List[Evidence]) -> Status:
+    """Derive a ``Status`` from evidence snippets."""
 
-def _status_from(text: str) -> Status:
-    """Map natural language response text to a ``Status``."""
-
-    t = (text or "").strip().lower()
-    if "satisf" in t or "pass" in t:
+    if not evidence:
+        return Status.UNKNOWN
+    text = " \n".join(ev.snippet.lower() for ev in evidence)
+    if "satisf" in text or "pass" in text:
         return Status.SATISFIED
-    if "violate" in t or "fail" in t:
+    if "violate" in text or "fail" in text:
         return Status.VIOLATED
     return Status.UNKNOWN
 
 
 def _to_dict(obj):
     return dataclasses.asdict(obj)
-
-
-def _messages_for(req: NLRequest) -> List[Dict[str, str]]:
-    sys = (
-        "You are a precise auditing assistant.\n"
-        "- For RETRIEVE: decide status for the condition.\n"
-        "- For DISCOVER: propose missing sub-conditions.\n"
-        "Return ONLY JSON with keys: final (string), children (list of {text})."
-    )
-    if req.kind == "RETRIEVE":
-        user = (
-            f"Objective: {req.objective}\n\n"
-            f"Context:\n{json.dumps(req.context, ensure_ascii=False)}\n\n"
-            'Respond ONLY as JSON: {"final":"PASS: ...|FAIL: ...|maybe","children":[]}'
-        )
-    else:  # DISCOVER
-        user = (
-            f"Objective: {req.objective}\n\n"
-            f"Context:\n{json.dumps(req.context, ensure_ascii=False)}\n\n"
-            'Respond ONLY as JSON: {"final":"","children":[{"text":"child 1"},{"text":"child 2"}]}'
-        )
-    return [{"role": "system", "content": sys}, {"role": "user", "content": user}]
-
-
-_json_pat = re.compile(r"\{.*\}", re.S)
-
-
-def _extract_json(text: str) -> Json:
-    m = _json_pat.search(text or "")
-    raw = m.group(0) if m else "{}"
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        data = {}
-    final = str(data.get("final") or "").strip()
-    kids = data.get("children") or []
-    children = []
-    for k in kids:
-        t = str((k or {}).get("text", "")).strip()
-        if t:
-            children.append({"text": t})
-    return {"final": final, "children": children}
-
-
-def _call_responses(req: NLRequest) -> NLResponse:
-    messages = _messages_for(req)
-    rsp = openai_generate_response(messages=messages, model="o3", reasoning_effort="high")
-    text = getattr(rsp, "output_text", None)
-    if not text:
-        parts = []
-        for item in getattr(rsp, "output", []) or []:
-            if getattr(item, "type", None) == "message":
-                for c in getattr(item, "content", []) or []:
-                    if getattr(c, "type", None) == "output_text":
-                        parts.append(getattr(c, "text", ""))
-        text = "".join(parts)
-    data = _extract_json(text)
-    logging.debug("Responses parsed → final=%r children=%d", data["final"], len(data["children"]))
-    if req.kind == "RETRIEVE" and not data["final"]:
-        data["final"] = "maybe"
-    return NLResponse(final=data["final"], children=data["children"])
 
 
 @dataclass
@@ -100,7 +35,7 @@ class Orchestrator:
     max_fanout: int = 10
     discover_on_unknown: bool = True
     on_event: Optional[Callable[[str, dict], None]] = None
-    use_responses: bool = False
+    discover_fn: Optional[Callable[[Condition], List[str]]] = None
 
     def _emit(self, evt: str, data: dict) -> None:
         if self.on_event:
@@ -128,7 +63,7 @@ class Orchestrator:
         )
         req = NLRequest(
             kind="RETRIEVE",
-            objective=f"Validate: {cond.text}",
+            objective=f"Fetch evidence for: {cond.text}",
             context={
                 "finding": _to_dict(finding),
                 "condition": _to_dict(cond),
@@ -136,16 +71,17 @@ class Orchestrator:
             },
         )
         try:
-            if self.use_responses:
-                # res = await self.agent_run(req)   # TODO(agent)
-                res = _call_responses(req)
-            else:
-                res = await self.agent_run(req)
+            res = await self.agent_run(req)
         except Exception:  # pragma: no cover - agent failures
-            res = NLResponse(final="")
+            res = NLResponse()
 
-        status = _status_from(res.final)
-        cond.plan_params.update(status=status.value, final=res.final)
+        status = _status_from_evidence(res.evidence)
+        final_text = "; ".join(ev.snippet for ev in res.evidence)
+        cond.plan_params.update(
+            status=status.value,
+            final=final_text,
+            evidence=[e.model_dump() for e in res.evidence],
+        )
         self._emit(
             "node:result",
             {
@@ -153,7 +89,8 @@ class Orchestrator:
                 "id": cond.id,
                 "depth": depth,
                 "status": status.value,
-                "final": res.final,
+                "final": final_text,
+                "evidence": [e.model_dump() for e in res.evidence],
                 "finding_id": finding.id,
             },
         )
@@ -161,37 +98,26 @@ class Orchestrator:
         if status != Status.UNKNOWN or depth >= self.max_depth:
             return
 
-        kids = res.children
-        if not kids and self.discover_on_unknown:
-            dreq = NLRequest(
-                kind="DISCOVER",
-                objective=f"Expand: {cond.text}",
-                context={
-                    "finding": _to_dict(finding),
-                    "parent_condition": _to_dict(cond),
-                    "ancestors": [_to_dict(a) for a in ancestors],
-                },
+        kids_text: List[str] = []
+        if self.discover_on_unknown:
+            self._emit(
+                "discover:start",
+                {"condition": cond.text, "id": cond.id, "depth": depth},
             )
-            try:
-                self._emit(
-                    "discover:start",
-                    {"condition": cond.text, "id": cond.id, "depth": depth},
-                )
-                if self.use_responses:
-                    # dres = await self.agent_run(dreq)  # TODO(agent)
-                    dres = _call_responses(dreq)
-                else:
-                    dres = await self.agent_run(dreq)
-                kids = dres.children
-            except Exception:  # pragma: no cover - agent failures
-                kids = []
+            if self.discover_fn:
+                kids_text = self.discover_fn(cond)
             self._emit(
                 "discover:result",
-                {"condition": cond.text, "id": cond.id, "depth": depth, "children": kids},
+                {
+                    "condition": cond.text,
+                    "id": cond.id,
+                    "depth": depth,
+                    "children": kids_text,
+                },
             )
 
-        for spec in (kids or [])[: self.max_fanout]:
-            child = Condition(text=spec.get("text", ""), parent_id=cond.id)
+        for text in (kids_text or [])[: self.max_fanout]:
+            child = Condition(text=text, parent_id=cond.id)
             cond.children.append(child)
             self._emit(
                 "child:add",
@@ -205,5 +131,5 @@ class Orchestrator:
             await self._eval_node(finding, child, ancestors + [cond], depth + 1)
 
 
-__all__ = ["Orchestrator", "_status_from"]
+__all__ = ["Orchestrator", "_status_from_evidence"]
 

@@ -1,8 +1,8 @@
-"""Example shell-based agent that counts TODO comments."""
+"""Shell-based agent that returns TODO comment locations."""
 
 import asyncio
 
-from .interface import NLRequest, NLResponse
+from .interface import Evidence, NLRequest, NLResponse
 
 
 async def run(request: NLRequest) -> NLResponse:
@@ -13,6 +13,11 @@ async def run(request: NLRequest) -> NLResponse:
     )
     out, _ = await proc.communicate()
     lines = out.decode("utf-8", "ignore").splitlines()
-    if lines:
-        return NLResponse(final=f"Found {len(lines)} TODOs.")
-    return NLResponse(final="No TODOs found.")
+    evidence = []
+    for line in lines:
+        try:
+            path, lineno, snippet = line.split(":", 2)
+            evidence.append(Evidence(path=path, line=int(lineno), snippet=snippet.strip()))
+        except ValueError:
+            continue
+    return NLResponse(evidence=evidence)
