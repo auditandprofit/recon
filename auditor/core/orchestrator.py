@@ -3,7 +3,7 @@
 import dataclasses
 import time
 from dataclasses import dataclass
-from typing import Awaitable, Callable, Dict, List, Optional
+from typing import Awaitable, Callable, Dict, List, Optional, Any
 
 from auditor.agent.interface import NLRequest, NLResponse
 from auditor.core.models import AuditReport, Condition, Finding, Status
@@ -69,16 +69,27 @@ class Orchestrator:
                 "condition": _to_dict(cond),
                 "ancestors": [_to_dict(a) for a in ancestors],
             },
+            limits={
+                "max_depth_remaining": self.max_depth - depth,
+                "max_fanout": self.max_fanout,
+            },
         )
         try:
             res = await self.agent_run(req)
         except Exception:  # pragma: no cover - agent failures
             res = NLResponse()
 
-        status = _status_from_output(res.output)
+        structured: Dict[str, Any] = (res.meta or {}).get("structured") or {}
+        status_str = structured.get("status")
+        if status_str in {"SATISFIED", "VIOLATED", "UNKNOWN"}:
+            status = Status(status_str)
+        else:
+            status = _status_from_output(res.output)
+
         cond.plan_params.update(
             status=status.value,
-            final=res.output,
+            final=structured.get("final") or res.output,
+            next_tasks=structured.get("next_tasks"),
             retrieval_meta=res.meta,
         )
         self._emit(
@@ -88,7 +99,7 @@ class Orchestrator:
                 "id": cond.id,
                 "depth": depth,
                 "status": status.value,
-                "final": res.output,
+                "final": structured.get("final") or res.output,
                 "retrieval_meta": res.meta,
                 "finding_id": finding.id,
             },
@@ -97,8 +108,9 @@ class Orchestrator:
         if status != Status.UNKNOWN or depth >= self.max_depth:
             return
 
-        kids_text: List[str] = []
-        if self.discover_on_unknown:
+        kids_text: List[str] = (structured.get("children") or [])[: self.max_fanout]
+
+        if not kids_text and self.discover_on_unknown:
             self._emit(
                 "discover:start",
                 {"condition": cond.text, "id": cond.id, "depth": depth},
@@ -115,7 +127,9 @@ class Orchestrator:
                 },
             )
 
-        for text in (kids_text or [])[: self.max_fanout]:
+        kids_text = kids_text[: self.max_fanout]
+
+        for text in kids_text:
             child = Condition(text=text, parent_id=cond.id)
             cond.children.append(child)
             self._emit(
