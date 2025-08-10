@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict
 
 
 class NLRequest(BaseModel):
@@ -9,12 +9,6 @@ class NLRequest(BaseModel):
     limits: Dict[str, Any] = {}
 
 
-class Evidence(BaseModel):
-    path: str
-    line: int
-    snippet: str
-    note: Optional[str] = None
-
-
 class NLResponse(BaseModel):
-    evidence: List[Evidence] = Field(default_factory=list)
+    output: str = ""
+    meta: Dict[str, Any] = Field(default_factory=dict)

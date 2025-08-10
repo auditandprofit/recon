@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import random
 
-from .interface import Evidence, NLRequest, NLResponse
+from .interface import NLRequest, NLResponse
 
 
 class RandomAgent:
@@ -15,12 +15,11 @@ class RandomAgent:
         self._max_children = max_children
 
     async def run(self, request: NLRequest) -> NLResponse:
-        snippet = self._rng.choices(
+        output = self._rng.choices(
             ["PASS: looks good", "FAIL: needs work", "maybe"],
             weights=[1, 1, 3],
         )[0]
-        ev = Evidence(path="random.txt", line=1, snippet=snippet)
-        return NLResponse(evidence=[ev])
+        return NLResponse(output=output)
 
 
 __all__ = ["RandomAgent"]

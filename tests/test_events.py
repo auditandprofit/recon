@@ -1,6 +1,6 @@
 import asyncio
 
-from auditor.agent.interface import Evidence, NLRequest, NLResponse
+from auditor.agent.interface import NLRequest, NLResponse
 from auditor.core.models import Condition, Finding
 from auditor.core.orchestrator import Orchestrator
 
@@ -11,8 +11,7 @@ def test_orchestrator_emits_events_with_depth():
     async def agent(req: NLRequest) -> NLResponse:
         text = req.context["condition"]["text"]
         if text == "child":
-            ev = Evidence(path="p", line=1, snippet="PASS: ok")
-            return NLResponse(evidence=[ev])
+            return NLResponse(output="PASS: ok")
         return NLResponse()
 
     def on_event(evt: str, data: dict) -> None:
@@ -21,7 +20,7 @@ def test_orchestrator_emits_events_with_depth():
     finding = Finding(claim="c", origin_file="o")
     finding.root_conditions.append(Condition(text="root"))
 
-    discover_fn = lambda c: ["child"] if c.text == "root" else []
+    discover_fn = lambda c, o: ["child"] if c.text == "root" else []
     orch = Orchestrator(agent, max_depth=1, on_event=on_event, discover_fn=discover_fn)
     asyncio.run(orch.run([finding]))
 
