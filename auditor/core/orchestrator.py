@@ -2,11 +2,17 @@
 
 import time
 import dataclasses
+import json
+import logging
+import re
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from auditor.agent.interface import NLRequest, NLResponse
+from auditor.agent.openai import openai_generate_response
 from auditor.core.models import AuditReport, Condition, Finding, Status
+
+Json = Dict[str, Any]
 
 
 def _status_from(text: str) -> Status:
@@ -24,6 +30,67 @@ def _to_dict(obj):
     return dataclasses.asdict(obj)
 
 
+def _messages_for(req: NLRequest) -> List[Dict[str, str]]:
+    sys = (
+        "You are a precise auditing assistant.\n"
+        "- For RETRIEVE: decide status for the condition.\n"
+        "- For DISCOVER: propose missing sub-conditions.\n"
+        "Return ONLY JSON with keys: final (string), children (list of {text})."
+    )
+    if req.kind == "RETRIEVE":
+        user = (
+            f"Objective: {req.objective}\n\n"
+            f"Context:\n{json.dumps(req.context, ensure_ascii=False)}\n\n"
+            'Respond ONLY as JSON: {"final":"PASS: ...|FAIL: ...|maybe","children":[]}'
+        )
+    else:  # DISCOVER
+        user = (
+            f"Objective: {req.objective}\n\n"
+            f"Context:\n{json.dumps(req.context, ensure_ascii=False)}\n\n"
+            'Respond ONLY as JSON: {"final":"","children":[{"text":"child 1"},{"text":"child 2"}]}'
+        )
+    return [{"role": "system", "content": sys}, {"role": "user", "content": user}]
+
+
+_json_pat = re.compile(r"\{.*\}", re.S)
+
+
+def _extract_json(text: str) -> Json:
+    m = _json_pat.search(text or "")
+    raw = m.group(0) if m else "{}"
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        data = {}
+    final = str(data.get("final") or "").strip()
+    kids = data.get("children") or []
+    children = []
+    for k in kids:
+        t = str((k or {}).get("text", "")).strip()
+        if t:
+            children.append({"text": t})
+    return {"final": final, "children": children}
+
+
+def _call_responses(req: NLRequest) -> NLResponse:
+    messages = _messages_for(req)
+    rsp = openai_generate_response(messages=messages, model="o3", reasoning_effort="high")
+    text = getattr(rsp, "output_text", None)
+    if not text:
+        parts = []
+        for item in getattr(rsp, "output", []) or []:
+            if getattr(item, "type", None) == "message":
+                for c in getattr(item, "content", []) or []:
+                    if getattr(c, "type", None) == "output_text":
+                        parts.append(getattr(c, "text", ""))
+        text = "".join(parts)
+    data = _extract_json(text)
+    logging.debug("Responses parsed → final=%r children=%d", data["final"], len(data["children"]))
+    if req.kind == "RETRIEVE" and not data["final"]:
+        data["final"] = "maybe"
+    return NLResponse(final=data["final"], children=data["children"])
+
+
 @dataclass
 class Orchestrator:
     """Coordinate retrieval and discovery of conditions."""
@@ -33,6 +100,7 @@ class Orchestrator:
     max_fanout: int = 10
     discover_on_unknown: bool = True
     on_event: Optional[Callable[[str, dict], None]] = None
+    use_responses: bool = False
 
     def _emit(self, evt: str, data: dict) -> None:
         if self.on_event:
@@ -68,7 +136,11 @@ class Orchestrator:
             },
         )
         try:
-            res = await self.agent_run(req)
+            if self.use_responses:
+                # res = await self.agent_run(req)   # TODO(agent)
+                res = _call_responses(req)
+            else:
+                res = await self.agent_run(req)
         except Exception:  # pragma: no cover - agent failures
             res = NLResponse(final="")
 
@@ -105,7 +177,11 @@ class Orchestrator:
                     "discover:start",
                     {"condition": cond.text, "id": cond.id, "depth": depth},
                 )
-                dres = await self.agent_run(dreq)
+                if self.use_responses:
+                    # dres = await self.agent_run(dreq)  # TODO(agent)
+                    dres = _call_responses(dreq)
+                else:
+                    dres = await self.agent_run(dreq)
                 kids = dres.children
             except Exception:  # pragma: no cover - agent failures
                 kids = []
