@@ -12,10 +12,23 @@ from auditor.report.render import render_report
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run auditor prototype")
     parser.add_argument("--repo", default=".", help="Path to repository root")
-    parser.add_argument("--discover-depth", type=int, default=0, help="Depth for discovery phase")
+    parser.add_argument("--max-depth", type=int, default=0, help="Maximum discovery depth")
+    parser.add_argument(
+        "--max-fanout", type=int, default=10, help="Maximum number of children per node"
+    )
+    parser.add_argument(
+        "--no-discover-on-unknown",
+        action="store_true",
+        help="Disable DISCOVER calls when status is UNKNOWN",
+    )
     args = parser.parse_args()
 
-    orch = Orchestrator(shell_agent.run, discover_depth=args.discover_depth)
+    orch = Orchestrator(
+        shell_agent.run,
+        max_depth=args.max_depth,
+        max_fanout=args.max_fanout,
+        discover_on_unknown=not args.no_discover_on_unknown,
+    )
 
     finding = Finding(claim="placeholder", origin_file="")
     finding.root_conditions.append(Condition(text="stub"))
