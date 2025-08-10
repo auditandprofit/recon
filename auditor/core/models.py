@@ -1,15 +1,8 @@
-from __future__ import annotations
-
-"""Core data models for auditor.
-
-These dataclasses implement the minimal schema described in the
-architectural notes.  They intentionally avoid behaviour in order to
-keep them easy to serialize and reason about.
-"""
+"""Core data models for auditor."""
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Dict, List
 
 
 class Status(str, Enum):
@@ -18,37 +11,6 @@ class Status(str, Enum):
     UNKNOWN = "UNKNOWN"
     SATISFIED = "SATISFIED"
     VIOLATED = "VIOLATED"
-
-
-@dataclass
-class CodeSpan:
-    """Reference to a region of code in a file."""
-
-    file: str
-    start_line: Optional[int] = None
-    end_line: Optional[int] = None
-    symbol: Optional[str] = None
-    snippet: Optional[str] = None
-
-
-@dataclass
-class ArtifactRef:
-    """Reference to a stored artifact in the blob store."""
-
-    kind: str
-    sha256: str
-    bytes: int
-    note: Optional[str] = None
-
-
-@dataclass
-class Evidence:
-    """Evidence collected by the retrieval agent."""
-
-    summary: str
-    locations: List[CodeSpan] = field(default_factory=list)
-    artifacts: List[ArtifactRef] = field(default_factory=list)
-    source: str = "agent://retrieval"
 
 
 @dataclass

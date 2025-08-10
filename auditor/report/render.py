@@ -1,8 +1,7 @@
-from __future__ import annotations
-
 """Helpers to render audit reports."""
 
 from typing import List
+
 from auditor.core.models import AuditReport
 
 
@@ -12,5 +11,9 @@ def render_report(report: AuditReport) -> str:
         lines.append(f"## Finding {idx}: {finding.claim}")
         lines.append(f"Origin: {finding.origin_file}")
         for cond in finding.root_conditions:
-            lines.append(f"- {cond.text}")
+            status = cond.plan_params.get("status", "UNKNOWN")
+            final = cond.plan_params.get("final", "")
+            lines.append(f"- [{status}] {cond.text}")
+            if final:
+                lines.append(f"    → {final}")
     return "\n".join(lines) + "\n"
