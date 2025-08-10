@@ -3,7 +3,7 @@
 import time
 import dataclasses
 from dataclasses import dataclass
-from typing import Awaitable, Callable, List
+from typing import Awaitable, Callable, List, Optional
 
 from auditor.agent.interface import NLRequest, NLResponse
 from auditor.core.models import AuditReport, Condition, Finding, Status
@@ -32,6 +32,11 @@ class Orchestrator:
     max_depth: int = 0
     max_fanout: int = 10
     discover_on_unknown: bool = True
+    on_event: Optional[Callable[[str, dict], None]] = None
+
+    def _emit(self, evt: str, data: dict) -> None:
+        if self.on_event:
+            self.on_event(evt, data)
 
     async def run(self, findings: List[Finding]) -> AuditReport:
         started = time.time()
@@ -44,6 +49,7 @@ class Orchestrator:
     async def _eval_node(
         self, finding: Finding, cond: Condition, ancestors: List[Condition], depth: int
     ) -> None:
+        self._emit("node:start", {"condition": cond.text, "depth": depth})
         req = NLRequest(
             kind="RETRIEVE",
             objective=f"Validate: {cond.text}",
@@ -60,6 +66,7 @@ class Orchestrator:
 
         status = _status_from(res.final)
         cond.plan_params.update(status=status.value, final=res.final)
+        self._emit("node:result", {"condition": cond.text, "depth": depth, "status": status.value, "final": res.final})
 
         if status != Status.UNKNOWN or depth >= self.max_depth:
             return
@@ -76,14 +83,17 @@ class Orchestrator:
                 },
             )
             try:
+                self._emit("discover:start", {"condition": cond.text, "depth": depth})
                 dres = await self.agent_run(dreq)
                 kids = dres.children
             except Exception:  # pragma: no cover - agent failures
                 kids = []
+            self._emit("discover:result", {"condition": cond.text, "depth": depth, "children": kids})
 
         for spec in (kids or [])[: self.max_fanout]:
             child = Condition(text=spec.get("text", ""), parent_id=cond.id)
             cond.children.append(child)
+            self._emit("child:add", {"condition": child.text, "depth": depth + 1})
             await self._eval_node(finding, child, ancestors + [cond], depth + 1)
 
 
