@@ -7,6 +7,7 @@ import sys
 
 from auditor.agent import shell_agent
 from auditor.agent.random_agent import RandomAgent
+from auditor.agent import llm_agent
 from auditor.core.models import Condition, Finding
 from auditor.core.orchestrator import Orchestrator
 from auditor.report.render import _tag, render_report_json, render_report_text
@@ -25,6 +26,12 @@ def main() -> None:
         help="Disable DISCOVER calls when status is UNKNOWN",
     )
     parser.add_argument("--random", action="store_true", help="Use random agent")
+    parser.add_argument(
+        "--agent",
+        choices=["shell", "llm"],
+        default="shell",
+        help="Which non-random agent to use",
+    )
     parser.add_argument("--seed", type=int, help="Seed for random agent")
     parser.add_argument("--findings", type=int, default=1, help="Number of initial findings")
     parser.add_argument("--no-stream", action="store_true", help="Disable live event stream")
@@ -87,7 +94,10 @@ def main() -> None:
             findings.append(f)
         on_event = None if args.no_stream else printer
     else:
-        agent = shell_agent.run
+        if args.agent == "llm":
+            agent = llm_agent.run
+        else:
+            agent = shell_agent.run
         f = Finding(claim="placeholder", origin_file="")
         f.root_conditions.append(Condition(text="stub"))
         findings = [f]
