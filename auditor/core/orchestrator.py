@@ -69,10 +69,6 @@ class Orchestrator:
                 "condition": _to_dict(cond),
                 "ancestors": [_to_dict(a) for a in ancestors],
             },
-            limits={
-                "max_depth_remaining": self.max_depth - depth,
-                "max_fanout": self.max_fanout,
-            },
         )
         try:
             res = await self.agent_run(req)
