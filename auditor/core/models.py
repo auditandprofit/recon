@@ -32,6 +32,7 @@ class Finding:
     claim: str
     origin_file: str
     root_conditions: List[Condition] = field(default_factory=list)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
 
 
 @dataclass
