@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Dict, Any
+from pydantic import BaseModel, Field
+from typing import Any, Dict, List
 
 
 class NLRequest(BaseModel):
@@ -11,3 +11,4 @@ class NLRequest(BaseModel):
 
 class NLResponse(BaseModel):
     final: str
+    children: List[Dict[str, Any]] = Field(default_factory=list)

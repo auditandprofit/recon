@@ -12,9 +12,10 @@ from auditor.report.render import render_report
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run auditor prototype")
     parser.add_argument("--repo", default=".", help="Path to repository root")
-    parser.parse_args()
+    parser.add_argument("--discover-depth", type=int, default=0, help="Depth for discovery phase")
+    args = parser.parse_args()
 
-    orch = Orchestrator(shell_agent.run)
+    orch = Orchestrator(shell_agent.run, discover_depth=args.discover_depth)
 
     finding = Finding(claim="placeholder", origin_file="")
     finding.root_conditions.append(Condition(text="stub"))

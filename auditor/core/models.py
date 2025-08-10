@@ -2,7 +2,8 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List
+import uuid
+from typing import Dict, List, Optional
 
 
 class Status(str, Enum):
@@ -19,6 +20,9 @@ class Condition:
 
     text: str
     plan_params: Dict[str, object] = field(default_factory=dict)
+    children: List["Condition"] = field(default_factory=list)
+    id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    parent_id: Optional[str] = None
 
 
 @dataclass
