@@ -15,7 +15,6 @@ Output STRICT JSON exactly matching the provided schema. No extra text.
 Rules:
 - status ∈ {SATISFIED, VIOLATED, UNKNOWN}
 - Keep final concise, evidence-focused.
-- Max children = {max_fanout}; omit if not needed.
 - Prefer 0 children when status ≠ UNKNOWN.
 """
 
@@ -28,9 +27,6 @@ Condition:
 
 Ancestors (shallow summaries ok):
 {ancestors}
-
-Limits:
-max_depth_remaining={max_depth_remaining}, max_fanout={max_fanout}
 
 Schema:
 {schema}
@@ -52,20 +48,15 @@ async def run(req: NLRequest) -> NLResponse:
     finding = ctx.get("finding", {})
     cond = ctx.get("condition", {})
     ancestors = ctx.get("ancestors", [])
-    limits = req.limits or {}
-    max_fanout = limits.get("max_fanout", 10)
-    max_depth_remaining = limits.get("max_depth_remaining", 0)
 
     messages = [
-        {"role": "system", "content": SYSTEM_PROMPT.format(max_fanout=max_fanout)},
+        {"role": "system", "content": SYSTEM_PROMPT},
         {
             "role": "user",
             "content": USER_TEMPLATE.format(
                 finding=finding,
                 text=cond.get("text", ""),
                 ancestors=ancestors,
-                max_depth_remaining=max_depth_remaining,
-                max_fanout=max_fanout,
                 schema=json.dumps(SCHEMA_JSON, ensure_ascii=False),
             ),
         },

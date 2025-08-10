@@ -13,9 +13,6 @@ async def structured_agent(req: NLRequest) -> NLResponse:
         "next_tasks": [{"kind": "RETRIEVE", "objective": "check details"}],
         "notes": ""
     }
-    # Ensure limits are passed through
-    assert "max_depth_remaining" in req.limits
-    assert "max_fanout" in req.limits
     return NLResponse(output="ignored", meta={"structured": structured})
 
 

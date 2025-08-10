@@ -6,7 +6,6 @@ class NLRequest(BaseModel):
     kind: str = "RETRIEVE"
     objective: str
     context: Dict[str, Any] = {}
-    limits: Dict[str, Any] = {}
 
 
 class NLResponse(BaseModel):
